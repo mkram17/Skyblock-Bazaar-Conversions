@@ -183,6 +183,10 @@ export const formatItemName = ({
     if (skyblockItemId.startsWith('ENCHANTMENT_TURBO')) {
         const turboName = itemName.substring(6);
         return `Turbo-${turboName}`;
+    }// Handle essence: convert "Essence [Name]" to "[Name] Essence"
+    if (skyblockItemId.startsWith('ESSENCE_') && itemName.startsWith('Essence ')) {
+        const essenceName = itemName.substring(8);
+        return `${essenceName} Essence`;
     }
     return itemName;
 };
