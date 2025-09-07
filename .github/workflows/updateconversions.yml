@@ -1,0 +1,164 @@
+name: Update Bazaar Conversions
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * *'
+  push:
+    branches:
+      - '**'
+    paths:
+      - 'scripts/generate-bazaar-conversions.ts'
+  pull_request:
+    branches:
+      - '**'
+
+concurrency:
+  group: bazaar-conversions-update
+  cancel-in-progress: true
+
+jobs:
+  update-bazaar-conversions:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    env:
+      OUTPUT_DIR: conversionupdating
+      OUTPUT_FILE: bazaar-conversions.json
+      OUTPUT_PATH: conversionupdating/bazaar-conversions.json
+      SCRIPT_PATH: scripts/generate-bazaar-conversions.ts
+      WORKDIR: conversionupdating
+
+    steps:
+      - name: Checkout repository (main branch)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: conversionupdating/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ env.WORKDIR }}
+        run: npm ci
+
+      - name: Generate filtered Bazaar conversions (with simple retry)
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          set -e
+          for i in 1 2 3; do
+            echo "Attempt $i..."
+            if npx ts-node $SCRIPT_PATH; then
+              break
+            fi
+            if [ $i -eq 3 ]; then
+              echo "All attempts failed."
+              exit 1
+            fi
+            echo "Sleeping before retry..."
+            sleep 10
+          done
+          echo "File size / preview:"
+          ls -lh "$OUTPUT_FILE"
+          head -n 20 "$OUTPUT_FILE" || true
+        env:
+          SCRIPT_PATH: ${{ env.SCRIPT_PATH }}
+
+      - name: Fail if file missing or empty
+        working-directory: ${{ env.WORKDIR }}
+        run: |
+          if [ ! -s "$OUTPUT_FILE" ]; then
+            echo "ERROR: $OUTPUT_FILE missing or empty (pwd=$(pwd))"
+            ls -al .
+            exit 1
+          fi
+
+      - name: Compute product ID count & write job summary
+        id: summary
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const file = process.env.OUTPUT_PATH; // root-relative
+            if (!fs.existsSync(file)) {
+              core.setFailed(`Expected file not found: ${file}`);
+              return;
+            }
+            let json;
+            try {
+              json = JSON.parse(fs.readFileSync(file, 'utf8'));
+            } catch (e) {
+              core.setFailed(`Failed to parse JSON in ${file}: ${e.message}`);
+              return;
+            }
+            const count = Object.keys(json).length;
+            core.setOutput('count', String(count));
+            await core.summary
+              .addHeading('Bazaar Conversions Update')
+              .addTable([
+                ['Metric','Value'],
+                ['Product IDs', String(count)],
+                ['File', file],
+                ['Branch Base','main']
+              ])
+              .addLink('Workflow Run', `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`)
+              .write();
+
+      - name: Normalize line endings (ensure deterministic diffs)
+        run: sed -i 's/\r$//' "$OUTPUT_PATH"
+
+      - name: Detect changes
+        id: detect
+        run: |
+          if git diff --quiet -- "$OUTPUT_PATH"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Get current UTC date
+        id: date
+        run: echo "date=$(date -u +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+
+      - name: Stop if no changes
+        if: steps.detect.outputs.changed == 'false'
+        run: echo "No changes in $OUTPUT_PATH. Exiting."
+
+      - name: Create Pull Request
+        if: steps.detect.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          add: ${{ env.OUTPUT_PATH }}
+          commit-message: "feat: update bazaar conversions (${{ steps.date.outputs.date }}, ${{ steps.summary.outputs.count }} items)"
+          committer: "GitHub Actions <actions@github.com>"
+          author: "GitHub Actions <actions@github.com>"
+          branch: "auto-update/bazaar-conversions"
+          delete-branch: true
+          base: main
+          title: "feat: Update Bazaar Conversions (${{ steps.date.outputs.date }})"
+          body: |
+            Automated update of bazaar-conversions.json.
+
+            Details:
+            - Product IDs (current Bazaar): **${{ steps.summary.outputs.count }}**
+            - Generated at: ${{ steps.date.outputs.date }} (UTC)
+            - Base branch: main
+
+            This file contains ONLY currently listed Bazaar product IDs.
+
+            (No PR is opened if there were no changes.)
+          labels: "automated-update,data,skyblock"
+
+      - name: Output summary
+        if: steps.detect.outputs.changed == 'true'
+        run: |
+          echo "Updated $OUTPUT_PATH with ${{ steps.summary.outputs.count }} product IDs and opened PR against main."
