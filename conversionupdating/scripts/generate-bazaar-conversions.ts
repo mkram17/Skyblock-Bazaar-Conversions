@@ -35,12 +35,12 @@ const PLACEHOLDER_PATTERN = /%%\w+%%/g;
 
 // Manual overrides for awkward IDs whose official item name might be null or undesirable
 const NAME_OVERRIDES: Record<string, string> = {
-    // Turbo Pumpkin
-    // ENCHANTMENT_TURBO_PUMPKIN_1: "Turbo Pumpkin I",
-    // ENCHANTMENT_TURBO_PUMPKIN_2: "Turbo Pumpkin II",
-    // ENCHANTMENT_TURBO_PUMPKIN_3: "Turbo Pumpkin III",
-    // ENCHANTMENT_TURBO_PUMPKIN_4: "Turbo Pumpkin IV",
-    // ENCHANTMENT_TURBO_PUMPKIN_5: "Turbo Pumpkin V",
+    // Turbo Cactus (Cacti)
+    ENCHANTMENT_TURBO_CACTUS_1: "Turbo-Cacti I",
+    ENCHANTMENT_TURBO_CACTUS_2: "Turbo-Cacti II",
+    ENCHANTMENT_TURBO_CACTUS_3: "Turbo-Cacti III",
+    ENCHANTMENT_TURBO_CACTUS_4: "Turbo-Cacti IV",
+    ENCHANTMENT_TURBO_CACTUS_5: "Turbo-Cacti V",
 
     // Ultimate Enchants that still have "Ultimate" in the name
     ENCHANTMENT_ULTIMATE_WISE_1: "Ultimate Wise I",
