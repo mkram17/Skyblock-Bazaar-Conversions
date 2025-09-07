@@ -35,6 +35,13 @@ const PLACEHOLDER_PATTERN = /%%\w+%%/g;
 
 // Manual overrides for awkward IDs whose official item name might be null or undesirable
 const NAME_OVERRIDES: Record<string, string> = {
+    // Turbo Pumpkin
+    // ENCHANTMENT_TURBO_PUMPKIN_1: "Turbo Pumpkin I",
+    // ENCHANTMENT_TURBO_PUMPKIN_2: "Turbo Pumpkin II",
+    // ENCHANTMENT_TURBO_PUMPKIN_3: "Turbo Pumpkin III",
+    // ENCHANTMENT_TURBO_PUMPKIN_4: "Turbo Pumpkin IV",
+    // ENCHANTMENT_TURBO_PUMPKIN_5: "Turbo Pumpkin V",
+
     // Ultimate Enchants that still have "Ultimate" in the name
     ENCHANTMENT_ULTIMATE_WISE_1: "Ultimate Wise I",
     ENCHANTMENT_ULTIMATE_WISE_2: "Ultimate Wise II",
@@ -169,10 +176,14 @@ export const formatItemName = ({
     const itemName = idToName(skyblockItemId);
     // Handle shard items: convert "Shard [Name]" to "[Name] Shard"
     if (skyblockItemId.startsWith('SHARD_')  && itemName.startsWith('Shard ')) {
-        const shardName = itemName.substring(6); // Remove "Shard " prefix
+        const shardName = itemName.substring(6);
         return `${shardName} Shard`;
     }
-    // Fallback
+    // Handle turbo enchantments: convert "Turbo [Name]" to "Turbo-[Name]"
+    if (skyblockItemId.startsWith('ENCHANTMENT_TURBO')) {
+        const turboName = itemName.substring(6);
+        return `Turbo-${turboName}`;
+    }
     return itemName;
 };
 
