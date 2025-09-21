@@ -35,6 +35,13 @@ const PLACEHOLDER_PATTERN = /%%\w+%%/g;
 
 // Manual overrides for awkward IDs whose official item name might be null or undesirable
 const NAME_OVERRIDES: Record<string, string> = {
+    //Duplex
+    ENCHANTMENT_ULTIMATE_REITERATE_1: "Duplex I",
+    ENCHANTMENT_ULTIMATE_REITERATE_2: "Duplex II",
+    ENCHANTMENT_ULTIMATE_REITERATE_3: "Duplex III",
+    ENCHANTMENT_ULTIMATE_REITERATE_4: "Duplex IV",
+    ENCHANTMENT_ULTIMATE_REITERATE_5: "Duplex V",
+
     // Turbo Cactus (Cacti)
     ENCHANTMENT_TURBO_CACTUS_1: "Turbo-Cacti I",
     ENCHANTMENT_TURBO_CACTUS_2: "Turbo-Cacti II",
