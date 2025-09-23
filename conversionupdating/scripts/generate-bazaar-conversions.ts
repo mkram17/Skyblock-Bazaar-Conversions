@@ -35,6 +35,9 @@ const PLACEHOLDER_PATTERN = /%%\w+%%/g;
 
 // Manual overrides for awkward IDs whose official item name might be null or undesirable
 const NAME_OVERRIDES: Record<string, string> = {
+    //Woodsplitter 6 (there are other Woodsplitter levels in endpoint but not in actual Bazaar)
+    ENCHANTMENT_ARCANE_6: "Woodsplitter VI",
+
     //Duplex
     ENCHANTMENT_ULTIMATE_REITERATE_1: "Duplex I",
     ENCHANTMENT_ULTIMATE_REITERATE_2: "Duplex II",
