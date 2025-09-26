@@ -36,9 +36,9 @@ const PLACEHOLDER_PATTERN = /%%\w+%%/g;
 // Manual overrides for awkward IDs whose official item name might be null or undesirable
 const NAME_OVERRIDES: Record<string, string> = {
     // Bobbin' Time
-    ENCHANTMENT_BOBBIN_TIME_3: "Bobbin' Time III",
-    ENCHANTMENT_BOBBIN_TIME_4: "Bobbin' Time IV",
-    ENCHANTMENT_BOBBIN_TIME_5: "Bobbin' Time V",
+    ENCHANTMENT_ULTIMATE_BOBBIN_TIME_3: "Bobbin' Time III",
+    ENCHANTMENT_ULTIMATE_BOBBIN_TIME_4: "Bobbin' Time IV",
+    ENCHANTMENT_ULTIMATE_BOBBIN_TIME_5: "Bobbin' Time V",
 
     //Woodsplitter 6 (there are other Woodsplitter levels in endpoint but not in actual Bazaar)
     ENCHANTMENT_ARCANE_6: "Woodsplitter VI",
