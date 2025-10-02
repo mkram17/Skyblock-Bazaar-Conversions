@@ -35,6 +35,9 @@ const PLACEHOLDER_PATTERN = /%%\w+%%/g;
 
 // Manual overrides for awkward IDs whose official item name might be null or undesirable
 const NAME_OVERRIDES: Record<string, string> = {
+    // Bogged Shard
+    SHARD_SEA_ARCHER: "Bogged Shard",
+
     // Prismatic
     ENCHANTMENT_PRISTINE_1: "Prismatic I",
     ENCHANTMENT_PRISTINE_2: "Prismatic II",
