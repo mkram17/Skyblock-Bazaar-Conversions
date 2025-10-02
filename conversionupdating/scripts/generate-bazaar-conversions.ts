@@ -35,6 +35,13 @@ const PLACEHOLDER_PATTERN = /%%\w+%%/g;
 
 // Manual overrides for awkward IDs whose official item name might be null or undesirable
 const NAME_OVERRIDES: Record<string, string> = {
+    // Prismatic
+    ENCHANTMENT_PRISTINE_1: "Prismatic I",
+    ENCHANTMENT_PRISTINE_2: "Prismatic II",
+    ENCHANTMENT_PRISTINE_3: "Prismatic III",
+    ENCHANTMENT_PRISTINE_4: "Prismatic IV",
+    ENCHANTMENT_PRISTINE_5: "Prismatic V",
+
     // Bobbin' Time
     ENCHANTMENT_ULTIMATE_BOBBIN_TIME_3: "Bobbin' Time III",
     ENCHANTMENT_ULTIMATE_BOBBIN_TIME_4: "Bobbin' Time IV",
