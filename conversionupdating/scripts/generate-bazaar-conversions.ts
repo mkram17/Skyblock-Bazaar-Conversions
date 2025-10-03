@@ -38,6 +38,8 @@ const NAME_OVERRIDES: Record<string, string> = {
     // Bogged Shard
     SHARD_SEA_ARCHER: "Bogged Shard",
 
+    SHARD_ENDSTONE_PROTECTOR: "End Stone Protector Shard",
+
     // Prismatic
     ENCHANTMENT_PRISTINE_1: "Prismatic I",
     ENCHANTMENT_PRISTINE_2: "Prismatic II",
