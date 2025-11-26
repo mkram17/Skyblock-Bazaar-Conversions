@@ -69,6 +69,11 @@ const NAME_OVERRIDES: Record<string, string> = {
     ENCHANTMENT_TURBO_CACTUS_4: "Turbo-Cacti IV",
     ENCHANTMENT_TURBO_CACTUS_5: "Turbo-Cacti V",
 
+    // Counter strike
+    ENCHANTMENT_COUNTER_STRIKE_3: "Counter-Strike III",
+    ENCHANTMENT_COUNTER_STRIKE_4: "Counter-Strike IV",
+    ENCHANTMENT_COUNTER_STRIKE_5: "Counter-Strike V",
+
     // Ultimate Enchants that still have "Ultimate" in the name
     ENCHANTMENT_ULTIMATE_WISE_1: "Ultimate Wise I",
     ENCHANTMENT_ULTIMATE_WISE_2: "Ultimate Wise II",
