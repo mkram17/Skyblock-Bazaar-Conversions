@@ -35,11 +35,17 @@ const PLACEHOLDER_PATTERN = /%%\w+%%/g;
 
 // Manual overrides for awkward IDs whose official item name might be null or undesirable
 const NAME_OVERRIDES: Record<string, string> = {
+
+    //Drain
+    ENCHANTMENT_SYPHON_5: "Drain V",
+    ENCHANTMENT_SYPHON_4: "Drain IV",
+
+    //Triple Strike
+    ENCHANTMENT_TRIPLE_STRIKE_5: "Triple-Strike V",
+
     // Shards
     SHARD_SEA_ARCHER: "Bogged Shard",
-
     SHARD_ENDSTONE_PROTECTOR: "End Stone Protector Shard",
-
     SHARD_CINDER_BAT: "Cinderbat Shard",
     SHARD_STRIDER_SURFER: "Stridersurfer Shard",
 
