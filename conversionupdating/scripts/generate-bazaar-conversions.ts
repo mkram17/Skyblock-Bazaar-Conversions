@@ -55,6 +55,7 @@ const NAME_OVERRIDES: Record<string, string> = {
     SHARD_ENDSTONE_PROTECTOR: "End Stone Protector Shard",
     SHARD_CINDER_BAT: "Cinderbat Shard",
     SHARD_STRIDER_SURFER: "Stridersurfer Shard",
+    SHARD_ABYSSAL_LANTERN: "Abyssal Lanternfish Shard",
 
     // Prismatic
     ENCHANTMENT_PRISTINE_1: "Prismatic I",
