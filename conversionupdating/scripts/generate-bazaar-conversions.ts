@@ -35,13 +35,27 @@ const PLACEHOLDER_PATTERN = /%%\w+%%/g;
 
 // Manual overrides for awkward IDs whose official item name might be null or undesirable
 const NAME_OVERRIDES: Record<string, string> = {
+
+    //Turbo cocoa
+    ENCHANTMENT_TURBO_COCO_1: "Turbo-Cocoa I",
+    ENCHANTMENT_TURBO_COCO_2: "Turbo-Cocoa II",
+    ENCHANTMENT_TURBO_COCO_3: "Turbo-Cocoa III",
+    ENCHANTMENT_TURBO_COCO_4: "Turbo-Cocoa IV",
+    ENCHANTMENT_TURBO_COCO_5: "Turbo-Cocoa V",
+
+    //Drain
+    ENCHANTMENT_SYPHON_5: "Drain V",
+    ENCHANTMENT_SYPHON_4: "Drain IV",
+
+    //Triple Strike
+    ENCHANTMENT_TRIPLE_STRIKE_5: "Triple-Strike V",
+
     // Shards
     SHARD_SEA_ARCHER: "Bogged Shard",
-
     SHARD_ENDSTONE_PROTECTOR: "End Stone Protector Shard",
-
     SHARD_CINDER_BAT: "Cinderbat Shard",
     SHARD_STRIDER_SURFER: "Stridersurfer Shard",
+    SHARD_ABYSSAL_LANTERN: "Abyssal Lanternfish Shard",
 
     // Prismatic
     ENCHANTMENT_PRISTINE_1: "Prismatic I",
