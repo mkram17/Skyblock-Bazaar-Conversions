@@ -91,6 +91,60 @@ const NAME_OVERRIDES: Record<string, string> = {
     ENCHANTMENT_COUNTER_STRIKE_4: "Counter-Strike IV",
     ENCHANTMENT_COUNTER_STRIKE_5: "Counter-Strike V",
 
+    // Vitality enchantments.
+    // The SkyBlock 0.26.1 "Healing Revamp" reworked the four Mana enchantments to run off Vitality
+    // and renamed them in-game, but their Bazaar product IDs still use the old MANA wording.
+    // Ferocious Mana was also given an entirely new name ("Vivacious Vitality") rather than a
+    // straight Mana -> Vitality swap.
+
+    // Hardened Mana -> Hardened Vitality
+    ENCHANTMENT_HARDENED_MANA_1: "Hardened Vitality I",
+    ENCHANTMENT_HARDENED_MANA_2: "Hardened Vitality II",
+    ENCHANTMENT_HARDENED_MANA_3: "Hardened Vitality III",
+    ENCHANTMENT_HARDENED_MANA_4: "Hardened Vitality IV",
+    ENCHANTMENT_HARDENED_MANA_5: "Hardened Vitality V",
+    ENCHANTMENT_HARDENED_MANA_6: "Hardened Vitality VI",
+    ENCHANTMENT_HARDENED_MANA_7: "Hardened Vitality VII",
+    ENCHANTMENT_HARDENED_MANA_8: "Hardened Vitality VIII",
+    ENCHANTMENT_HARDENED_MANA_9: "Hardened Vitality IX",
+    ENCHANTMENT_HARDENED_MANA_10: "Hardened Vitality X",
+
+    // Strong Mana -> Strong Vitality
+    ENCHANTMENT_STRONG_MANA_1: "Strong Vitality I",
+    ENCHANTMENT_STRONG_MANA_2: "Strong Vitality II",
+    ENCHANTMENT_STRONG_MANA_3: "Strong Vitality III",
+    ENCHANTMENT_STRONG_MANA_4: "Strong Vitality IV",
+    ENCHANTMENT_STRONG_MANA_5: "Strong Vitality V",
+    ENCHANTMENT_STRONG_MANA_6: "Strong Vitality VI",
+    ENCHANTMENT_STRONG_MANA_7: "Strong Vitality VII",
+    ENCHANTMENT_STRONG_MANA_8: "Strong Vitality VIII",
+    ENCHANTMENT_STRONG_MANA_9: "Strong Vitality IX",
+    ENCHANTMENT_STRONG_MANA_10: "Strong Vitality X",
+
+    // Vampiric Mana / Mana Vampire -> Vampiric Vitality
+    ENCHANTMENT_MANA_VAMPIRE_1: "Vampiric Vitality I",
+    ENCHANTMENT_MANA_VAMPIRE_2: "Vampiric Vitality II",
+    ENCHANTMENT_MANA_VAMPIRE_3: "Vampiric Vitality III",
+    ENCHANTMENT_MANA_VAMPIRE_4: "Vampiric Vitality IV",
+    ENCHANTMENT_MANA_VAMPIRE_5: "Vampiric Vitality V",
+    ENCHANTMENT_MANA_VAMPIRE_6: "Vampiric Vitality VI",
+    ENCHANTMENT_MANA_VAMPIRE_7: "Vampiric Vitality VII",
+    ENCHANTMENT_MANA_VAMPIRE_8: "Vampiric Vitality VIII",
+    ENCHANTMENT_MANA_VAMPIRE_9: "Vampiric Vitality IX",
+    ENCHANTMENT_MANA_VAMPIRE_10: "Vampiric Vitality X",
+
+    // Ferocious Mana -> Vivacious Vitality
+    ENCHANTMENT_FEROCIOUS_MANA_1: "Vivacious Vitality I",
+    ENCHANTMENT_FEROCIOUS_MANA_2: "Vivacious Vitality II",
+    ENCHANTMENT_FEROCIOUS_MANA_3: "Vivacious Vitality III",
+    ENCHANTMENT_FEROCIOUS_MANA_4: "Vivacious Vitality IV",
+    ENCHANTMENT_FEROCIOUS_MANA_5: "Vivacious Vitality V",
+    ENCHANTMENT_FEROCIOUS_MANA_6: "Vivacious Vitality VI",
+    ENCHANTMENT_FEROCIOUS_MANA_7: "Vivacious Vitality VII",
+    ENCHANTMENT_FEROCIOUS_MANA_8: "Vivacious Vitality VIII",
+    ENCHANTMENT_FEROCIOUS_MANA_9: "Vivacious Vitality IX",
+    ENCHANTMENT_FEROCIOUS_MANA_10: "Vivacious Vitality X",
+
     // Ultimate Enchants that still have "Ultimate" in the name
     ENCHANTMENT_ULTIMATE_WISE_1: "Ultimate Wise I",
     ENCHANTMENT_ULTIMATE_WISE_2: "Ultimate Wise II",
