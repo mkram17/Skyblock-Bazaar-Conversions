@@ -56,6 +56,8 @@ const NAME_OVERRIDES: Record<string, string> = {
     SHARD_CINDER_BAT: "Cinderbat Shard",
     SHARD_STRIDER_SURFER: "Stridersurfer Shard",
     SHARD_ABYSSAL_LANTERN: "Abyssal Lanternfish Shard",
+    // The product ID spells it "SPECTER", but the shard is called "Wither Spectre" in game
+    SHARD_WITHER_SPECTER: "Wither Spectre Shard",
 
     // Prismatic
     ENCHANTMENT_PRISTINE_1: "Prismatic I",
