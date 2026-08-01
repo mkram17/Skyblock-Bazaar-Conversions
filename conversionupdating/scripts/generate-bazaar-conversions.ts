@@ -25,9 +25,7 @@ const TRAILING_LEVEL_PATTERN = /^(?<base>.*\S)\s+(?<level>[IVXLCDM]+|\d+)$/;
 /** romans.romanize rejects anything above this */
 const MAX_ROMAN_LEVEL = 3999;
 
-const NAME_SOURCES = [
-    'override', 'neu-item', 'neu-stock', 'neu-alias', 'sibling', 'previous', 'prettified',
-] as const;
+const NAME_SOURCES = ['neu-item', 'neu-stock', 'neu-alias', 'sibling', 'prettified'] as const;
 type NameSource = (typeof NAME_SOURCES)[number];
 
 interface NeuRepo {
@@ -59,11 +57,6 @@ const NEU_ALIASES: Record<string, string> = {
     BAZAAR_COOKIE: 'BOOSTER_COOKIE',
     ENCHANTED_CARROT_ON_A_STICK: 'ENCHANTED_CARROT_STICK',
 };
-
-// Escape hatch for names NEU gets wrong or has not caught up with yet. Deliberately empty:
-// NEU currently covers every Bazaar product, either directly or through the sibling-level
-// template below. Add an entry here only as a stopgap, and drop it once NEU is fixed.
-const NAME_OVERRIDES: Record<string, string> = {};
 
 const stripFormatting = (name: string): string => name.replace(COLOR_CODE_PATTERN, '').trim();
 
@@ -178,19 +171,8 @@ function siblingLevelName(neu: NeuRepo, productId: string): string | null {
     return null;
 }
 
-/**
- * Resolves one Bazaar product id to the name it is displayed under in game. `previous` is the
- * last generated file, kept as a floor so a NEU outage cannot churn known-good names into
- * prettified guesses.
- */
-function resolveProductName(
-    neu: NeuRepo,
-    productId: string,
-    previous: Record<string, string>,
-): Omit<ResolvedProduct, 'productId'> {
-    const override = NAME_OVERRIDES[productId];
-    if (override) return { name: override, source: 'override' };
-
+/** Resolves one Bazaar product id to the name it is displayed under in game. */
+function resolveProductName(neu: NeuRepo, productId: string): Omit<ResolvedProduct, 'productId'> {
     const direct = readNeuName(neu, productId);
     if (direct) return { name: direct, source: 'neu-item' };
 
@@ -205,31 +187,14 @@ function resolveProductName(
     const sibling = siblingLevelName(neu, productId);
     if (sibling) return { name: sibling, source: 'sibling' };
 
-    const known = previous[productId];
-    if (known) return { name: known, source: 'previous' };
-
     return { name: idToName(productId), source: 'prettified' };
 }
 
 /** Resolves every product, sorted by id so the generated file has a stable order. */
-export function resolveProducts(
-    neu: NeuRepo,
-    productIds: string[],
-    previous: Record<string, string>,
-): ResolvedProduct[] {
+export function resolveProducts(neu: NeuRepo, productIds: string[]): ResolvedProduct[] {
     return [...productIds]
         .sort((a, b) => a.localeCompare(b))
-        .map((productId) => ({ productId, ...resolveProductName(neu, productId, previous) }));
-}
-
-function readPreviousConversions(): Record<string, string> {
-    if (!fs.existsSync(OUTPUT_PATH)) return {};
-    try {
-        return JSON.parse(fs.readFileSync(OUTPUT_PATH, 'utf8')) as Record<string, string>;
-    } catch (e) {
-        console.warn(`Could not read previous ${OUTPUT_FILE_NAME}: ${(e as Error).message}`);
-        return {};
-    }
+        .map((productId) => ({ productId, ...resolveProductName(neu, productId) }));
 }
 
 async function generateBazaarConversions() {
@@ -239,7 +204,7 @@ async function generateBazaarConversions() {
     console.log(`Bazaar currently lists ${productIds.length} product IDs.`);
 
     const neu = openNeuRepo();
-    const resolved = resolveProducts(neu, productIds, readPreviousConversions());
+    const resolved = resolveProducts(neu, productIds);
     const conversions = Object.fromEntries(resolved.map(({ productId, name }) => [productId, name]));
 
     fs.writeFileSync(OUTPUT_PATH, JSON.stringify(conversions, null, 2));
@@ -248,12 +213,12 @@ async function generateBazaarConversions() {
     const counts = NAME_SOURCES.map((s) => `${s}=${resolved.filter((r) => r.source === s).length}`);
     console.log(`Name sources (NEU commit ${neu.commit}): ${counts.join(', ')}`);
 
-    // Anything NEU could not name is worth a human look: either the Bazaar added a product NEU
-    // has not picked up yet, or the id shape is one the sibling template cannot handle.
-    const unnamed = resolved.filter((r) => r.source === 'previous' || r.source === 'prettified');
-    if (unnamed.length) {
-        const listed = unnamed.map((r) => `${r.productId} (${r.source})`).join(', ');
-        console.log(`NOTE: ${unnamed.length} product IDs had no NEU name: ${listed}`);
+    // Anything NEU could not name fell back to the id prettifier and is worth a human look:
+    // either the Bazaar added a product NEU has not picked up yet, or the id shape is one the
+    // sibling template cannot handle.
+    const prettified = resolved.filter((r) => r.source === 'prettified').map((r) => r.productId);
+    if (prettified.length) {
+        console.log(`NOTE: ${prettified.length} product IDs had no NEU name: ${prettified.join(', ')}`);
     }
 }
 
