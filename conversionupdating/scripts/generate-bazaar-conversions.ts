@@ -1,24 +1,24 @@
+import { execFileSync } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { startCase, toLower } from 'lodash';
 import romans from 'romans';
 
-const ITEMS_API_URL = 'https://api.hypixel.net/v2/resources/skyblock/items';
 const BAZAAR_API_URL = 'https://api.hypixel.net/v2/skyblock/bazaar';
+
+// Display names come from the NEU item repo rather than the SkyBlock items API.
+// NEU's names are scraped from the items as they actually render in game, which is what
+// consumers match against; the items API `name` field is often absent (every shard, most
+// enchantment books) or stale (enchantments renamed in place, e.g. Arcane -> Woodsplitter).
+const NEU_REPO_URL = 'https://github.com/NotEnoughUpdates/NotEnoughUpdates-REPO';
+
+// Set to an existing NEU checkout to skip the clone (useful for local runs and CI caching).
+const NEU_REPO_PATH_ENV = 'NEU_REPO_PATH';
 
 const OUTPUT_FILE_NAME = 'bazaar-conversions.json';
 const OUTPUT_PATH = path.join(process.cwd(), OUTPUT_FILE_NAME);
 
-interface SkyBlockItem {
-    id: string;
-    name: string | null;
-    [k: string]: any;
-}
-interface SkyBlockItemsApiResponse {
-    success: true;
-    lastUpdated: number;
-    items: SkyBlockItem[];
-}
 interface BazaarApiResponse {
     success: true;
     lastUpdated: number;
@@ -29,226 +29,76 @@ interface ApiErrorResponse {
     cause?: string;
 }
 
+interface NeuItem {
+    displayname?: string;
+    lore?: string[];
+    [k: string]: any;
+}
+
+/** One entry of NEU's constants/bazaarstocks.json: Bazaar product id -> NEU item id. */
+interface BazaarStock {
+    stock?: string;
+    id?: string;
+}
+
+interface NeuRepo {
+    root: string;
+    commit: string;
+    /** Bazaar product id -> NEU item id, from constants/bazaarstocks.json */
+    stocks: Map<string, string>;
+}
+
+/** How a product's display name was determined, for reporting. */
+type NameSource = 'override' | 'neu-item' | 'neu-stock' | 'neu-alias' | 'sibling' | 'previous' | 'prettified';
+
+interface ResolvedName {
+    name: string;
+    source: NameSource;
+}
+
 const ENDS_WITH_NUMBER = /\d$/;
 const COLOR_CODE_PATTERN = /§[0-9A-FK-ORa-fk-or]/g;
 const PLACEHOLDER_PATTERN = /%%\w+%%/g;
 
-// Manual overrides for awkward IDs whose official item name might be null or undesirable
-const NAME_OVERRIDES: Record<string, string> = {
+/** ENCHANTMENT_<family>_<level>, e.g. ENCHANTMENT_COUNTER_STRIKE_3 */
+const ENCHANTMENT_ID_PATTERN = /^ENCHANTMENT_(?<family>.+)_(?<level>\d+)$/;
+/** A display name ending in a level, e.g. "Counter-Strike V" or "Scuba 2" */
+const TRAILING_LEVEL_PATTERN = /^(?<base>.*\S)\s+(?<level>[IVXLCDM]+|\d+)$/;
 
-    //Turbo cocoa
-    ENCHANTMENT_TURBO_COCO_1: "Turbo-Cocoa I",
-    ENCHANTMENT_TURBO_COCO_2: "Turbo-Cocoa II",
-    ENCHANTMENT_TURBO_COCO_3: "Turbo-Cocoa III",
-    ENCHANTMENT_TURBO_COCO_4: "Turbo-Cocoa IV",
-    ENCHANTMENT_TURBO_COCO_5: "Turbo-Cocoa V",
+const MAX_ROMAN_LEVEL = 3999;
 
-    //Drain
-    ENCHANTMENT_SYPHON_5: "Drain V",
-    ENCHANTMENT_SYPHON_4: "Drain IV",
-
-    //Triple Strike
-    ENCHANTMENT_TRIPLE_STRIKE_5: "Triple-Strike V",
-
-    // Shards
-    SHARD_SEA_ARCHER: "Bogged Shard",
-    SHARD_ENDSTONE_PROTECTOR: "End Stone Protector Shard",
-    SHARD_CINDER_BAT: "Cinderbat Shard",
-    SHARD_STRIDER_SURFER: "Stridersurfer Shard",
-    SHARD_ABYSSAL_LANTERN: "Abyssal Lanternfish Shard",
-    // The product ID spells it "SPECTER", but the shard is called "Wither Spectre" in game
-    SHARD_WITHER_SPECTER: "Wither Spectre Shard",
-
-    // Prismatic
-    ENCHANTMENT_PRISTINE_1: "Prismatic I",
-    ENCHANTMENT_PRISTINE_2: "Prismatic II",
-    ENCHANTMENT_PRISTINE_3: "Prismatic III",
-    ENCHANTMENT_PRISTINE_4: "Prismatic IV",
-    ENCHANTMENT_PRISTINE_5: "Prismatic V",
-
-    // Bobbin' Time
-    ENCHANTMENT_ULTIMATE_BOBBIN_TIME_3: "Bobbin' Time III",
-    ENCHANTMENT_ULTIMATE_BOBBIN_TIME_4: "Bobbin' Time IV",
-    ENCHANTMENT_ULTIMATE_BOBBIN_TIME_5: "Bobbin' Time V",
-
-    //Woodsplitter 6 (there are other Woodsplitter levels in endpoint but not in actual Bazaar)
-    ENCHANTMENT_ARCANE_6: "Woodsplitter VI",
-
-    //Duplex
-    ENCHANTMENT_ULTIMATE_REITERATE_1: "Duplex I",
-    ENCHANTMENT_ULTIMATE_REITERATE_2: "Duplex II",
-    ENCHANTMENT_ULTIMATE_REITERATE_3: "Duplex III",
-    ENCHANTMENT_ULTIMATE_REITERATE_4: "Duplex IV",
-    ENCHANTMENT_ULTIMATE_REITERATE_5: "Duplex V",
-
-    // Turbo Cactus (Cacti)
-    ENCHANTMENT_TURBO_CACTUS_1: "Turbo-Cacti I",
-    ENCHANTMENT_TURBO_CACTUS_2: "Turbo-Cacti II",
-    ENCHANTMENT_TURBO_CACTUS_3: "Turbo-Cacti III",
-    ENCHANTMENT_TURBO_CACTUS_4: "Turbo-Cacti IV",
-    ENCHANTMENT_TURBO_CACTUS_5: "Turbo-Cacti V",
-
-    // Counter strike
-    ENCHANTMENT_COUNTER_STRIKE_3: "Counter-Strike III",
-    ENCHANTMENT_COUNTER_STRIKE_4: "Counter-Strike IV",
-    ENCHANTMENT_COUNTER_STRIKE_5: "Counter-Strike V",
-
-    // Vitality enchantments.
-    // The SkyBlock 0.26.1 "Healing Revamp" reworked the four Mana enchantments to run off Vitality
-    // and renamed them in-game, but their Bazaar product IDs still use the old MANA wording.
-    // Ferocious Mana was also given an entirely new name ("Vivacious Vitality") rather than a
-    // straight Mana -> Vitality swap.
-
-    // Hardened Mana -> Hardened Vitality
-    ENCHANTMENT_HARDENED_MANA_1: "Hardened Vitality I",
-    ENCHANTMENT_HARDENED_MANA_2: "Hardened Vitality II",
-    ENCHANTMENT_HARDENED_MANA_3: "Hardened Vitality III",
-    ENCHANTMENT_HARDENED_MANA_4: "Hardened Vitality IV",
-    ENCHANTMENT_HARDENED_MANA_5: "Hardened Vitality V",
-    ENCHANTMENT_HARDENED_MANA_6: "Hardened Vitality VI",
-    ENCHANTMENT_HARDENED_MANA_7: "Hardened Vitality VII",
-    ENCHANTMENT_HARDENED_MANA_8: "Hardened Vitality VIII",
-    ENCHANTMENT_HARDENED_MANA_9: "Hardened Vitality IX",
-    ENCHANTMENT_HARDENED_MANA_10: "Hardened Vitality X",
-
-    // Strong Mana -> Strong Vitality
-    ENCHANTMENT_STRONG_MANA_1: "Strong Vitality I",
-    ENCHANTMENT_STRONG_MANA_2: "Strong Vitality II",
-    ENCHANTMENT_STRONG_MANA_3: "Strong Vitality III",
-    ENCHANTMENT_STRONG_MANA_4: "Strong Vitality IV",
-    ENCHANTMENT_STRONG_MANA_5: "Strong Vitality V",
-    ENCHANTMENT_STRONG_MANA_6: "Strong Vitality VI",
-    ENCHANTMENT_STRONG_MANA_7: "Strong Vitality VII",
-    ENCHANTMENT_STRONG_MANA_8: "Strong Vitality VIII",
-    ENCHANTMENT_STRONG_MANA_9: "Strong Vitality IX",
-    ENCHANTMENT_STRONG_MANA_10: "Strong Vitality X",
-
-    // Vampiric Mana / Mana Vampire -> Vampiric Vitality
-    ENCHANTMENT_MANA_VAMPIRE_1: "Vampiric Vitality I",
-    ENCHANTMENT_MANA_VAMPIRE_2: "Vampiric Vitality II",
-    ENCHANTMENT_MANA_VAMPIRE_3: "Vampiric Vitality III",
-    ENCHANTMENT_MANA_VAMPIRE_4: "Vampiric Vitality IV",
-    ENCHANTMENT_MANA_VAMPIRE_5: "Vampiric Vitality V",
-    ENCHANTMENT_MANA_VAMPIRE_6: "Vampiric Vitality VI",
-    ENCHANTMENT_MANA_VAMPIRE_7: "Vampiric Vitality VII",
-    ENCHANTMENT_MANA_VAMPIRE_8: "Vampiric Vitality VIII",
-    ENCHANTMENT_MANA_VAMPIRE_9: "Vampiric Vitality IX",
-    ENCHANTMENT_MANA_VAMPIRE_10: "Vampiric Vitality X",
-
-    // Ferocious Mana -> Vivacious Vitality
-    ENCHANTMENT_FEROCIOUS_MANA_1: "Vivacious Vitality I",
-    ENCHANTMENT_FEROCIOUS_MANA_2: "Vivacious Vitality II",
-    ENCHANTMENT_FEROCIOUS_MANA_3: "Vivacious Vitality III",
-    ENCHANTMENT_FEROCIOUS_MANA_4: "Vivacious Vitality IV",
-    ENCHANTMENT_FEROCIOUS_MANA_5: "Vivacious Vitality V",
-    ENCHANTMENT_FEROCIOUS_MANA_6: "Vivacious Vitality VI",
-    ENCHANTMENT_FEROCIOUS_MANA_7: "Vivacious Vitality VII",
-    ENCHANTMENT_FEROCIOUS_MANA_8: "Vivacious Vitality VIII",
-    ENCHANTMENT_FEROCIOUS_MANA_9: "Vivacious Vitality IX",
-    ENCHANTMENT_FEROCIOUS_MANA_10: "Vivacious Vitality X",
-
-    // Ultimate Enchants that still have "Ultimate" in the name
-    ENCHANTMENT_ULTIMATE_WISE_1: "Ultimate Wise I",
-    ENCHANTMENT_ULTIMATE_WISE_2: "Ultimate Wise II",
-    ENCHANTMENT_ULTIMATE_WISE_3: "Ultimate Wise III",
-    ENCHANTMENT_ULTIMATE_WISE_4: "Ultimate Wise IV",
-    ENCHANTMENT_ULTIMATE_WISE_5: "Ultimate Wise V",
-
-    ENCHANTMENT_ULTIMATE_JERRY_1: "Ultimate Jerry I",
-    ENCHANTMENT_ULTIMATE_JERRY_2: "Ultimate Jerry II",
-    ENCHANTMENT_ULTIMATE_JERRY_3: "Ultimate Jerry III",
-    ENCHANTMENT_ULTIMATE_JERRY_4: "Ultimate Jerry IV",
-    ENCHANTMENT_ULTIMATE_JERRY_5: "Ultimate Jerry V",
-
-    // Ingots
-    ENCHANTED_IRON: "Enchanted Iron Ingot",
-    ENCHANTED_GOLD: "Enchanted Gold Ingot",
-
-    // Since the release of SkyBlock 0.26, Hypixel now precedes each Gemstone of a PUA - Private Use Area glyph (U+E000–U+F8FF)
-    // such that they can style it per a custom font on their now required-to-play-skyblock custom resource pack.
-    
-    // TODO: Check whether SkyBlockAPI plans to have a `DataType` whereof those Hypixel-accidental chars would be stripped automatically, for release of 1.0.0.
-
-    // Gemstones (Rough)
-    ROUGH_AMBER_GEM: "\uE015 Rough Amber Gemstone",
-    ROUGH_AMETHYST_GEM: "\uE008 Rough Amethyst Gemstone",
-    ROUGH_AQUAMARINE_GEM: "\uE00C Rough Aquamarine Gemstone",
-    ROUGH_CITRINE_GEM: "\uE054 Rough Citrine Gemstone",
-    ROUGH_JADE_GEM: "\uE053 Rough Jade Gemstone",
-    ROUGH_JASPER_GEM: "\uE00D Rough Jasper Gemstone",
-    ROUGH_ONYX_GEM: "\uE007 Rough Onyx Gemstone",
-    ROUGH_OPAL_GEM: "\uE027 Rough Opal Gemstone",
-    ROUGH_PERIDOT_GEM: "\uE051 Rough Peridot Gemstone",
-    ROUGH_RUBY_GEM: "\uE010 Rough Ruby Gemstone",
-    ROUGH_SAPPHIRE_GEM: "\uE003 Rough Sapphire Gemstone",
-    ROUGH_TOPAZ_GEM: "\uE01C Rough Topaz Gemstone",
-
-    // Gemstones (Flawed)
-    FLAWED_AMBER_GEM: "\uE015 Flawed Amber Gemstone",
-    FLAWED_AMETHYST_GEM: "\uE008 Flawed Amethyst Gemstone",
-    FLAWED_AQUAMARINE_GEM: "\uE00C Flawed Aquamarine Gemstone",
-    FLAWED_CITRINE_GEM: "\uE054 Flawed Citrine Gemstone",
-    FLAWED_JADE_GEM: "\uE053 Flawed Jade Gemstone",
-    FLAWED_JASPER_GEM: "\uE00D Flawed Jasper Gemstone",
-    FLAWED_ONYX_GEM: "\uE007 Flawed Onyx Gemstone",
-    FLAWED_OPAL_GEM: "\uE027 Flawed Opal Gemstone",
-    FLAWED_PERIDOT_GEM: "\uE051 Flawed Peridot Gemstone",
-    FLAWED_RUBY_GEM: "\uE010 Flawed Ruby Gemstone",
-    FLAWED_SAPPHIRE_GEM: "\uE003 Flawed Sapphire Gemstone",
-    FLAWED_TOPAZ_GEM: "\uE01C Flawed Topaz Gemstone",
-
-    // Gemstones (Fine)
-    FINE_AMBER_GEM: "\uE015 Fine Amber Gemstone",
-    FINE_AMETHYST_GEM: "\uE008 Fine Amethyst Gemstone",
-    FINE_AQUAMARINE_GEM: "\uE00C Fine Aquamarine Gemstone",
-    FINE_CITRINE_GEM: "\uE054 Fine Citrine Gemstone",
-    FINE_JADE_GEM: "\uE053 Fine Jade Gemstone",
-    FINE_JASPER_GEM: "\uE00D Fine Jasper Gemstone",
-    FINE_ONYX_GEM: "\uE007 Fine Onyx Gemstone",
-    FINE_OPAL_GEM: "\uE027 Fine Opal Gemstone",
-    FINE_PERIDOT_GEM: "\uE051 Fine Peridot Gemstone",
-    FINE_RUBY_GEM: "\uE010 Fine Ruby Gemstone",
-    FINE_SAPPHIRE_GEM: "\uE003 Fine Sapphire Gemstone",
-    FINE_TOPAZ_GEM: "\uE01C Fine Topaz Gemstone",
-
-    // Gemstones (Flawless)
-    FLAWLESS_AMBER_GEM: "\uE015 Flawless Amber Gemstone",
-    FLAWLESS_AMETHYST_GEM: "\uE008 Flawless Amethyst Gemstone",
-    FLAWLESS_AQUAMARINE_GEM: "\uE00C Flawless Aquamarine Gemstone",
-    FLAWLESS_CITRINE_GEM: "\uE054 Flawless Citrine Gemstone",
-    FLAWLESS_JADE_GEM: "\uE053 Flawless Jade Gemstone",
-    FLAWLESS_JASPER_GEM: "\uE00D Flawless Jasper Gemstone",
-    FLAWLESS_ONYX_GEM: "\uE007 Flawless Onyx Gemstone",
-    FLAWLESS_OPAL_GEM: "\uE027 Flawless Opal Gemstone",
-    FLAWLESS_PERIDOT_GEM: "\uE051 Flawless Peridot Gemstone",
-    FLAWLESS_RUBY_GEM: "\uE010 Flawless Ruby Gemstone",
-    FLAWLESS_SAPPHIRE_GEM: "\uE003 Flawless Sapphire Gemstone",
-    FLAWLESS_TOPAZ_GEM: "\uE01C Flawless Topaz Gemstone",
-
-    // Gemstones (Perfect)
-    PERFECT_AMBER_GEM: "\uE015 Perfect Amber Gemstone",
-    PERFECT_AMETHYST_GEM: "\uE008 Perfect Amethyst Gemstone",
-    PERFECT_AQUAMARINE_GEM: "\uE00C Perfect Aquamarine Gemstone",
-    PERFECT_CITRINE_GEM: "\uE054 Perfect Citrine Gemstone",
-    PERFECT_JADE_GEM: "\uE053 Perfect Jade Gemstone",
-    PERFECT_JASPER_GEM: "\uE00D Perfect Jasper Gemstone",
-    PERFECT_ONYX_GEM: "\uE007 Perfect Onyx Gemstone",
-    PERFECT_OPAL_GEM: "\uE027 Perfect Opal Gemstone",
-    PERFECT_PERIDOT_GEM: "\uE051 Perfect Peridot Gemstone",
-    PERFECT_RUBY_GEM: "\uE010 Perfect Ruby Gemstone",
-    PERFECT_SAPPHIRE_GEM: "\uE003 Perfect Sapphire Gemstone",
-    PERFECT_TOPAZ_GEM: "\uE01C Perfect Topaz Gemstone",
+// The Bazaar still lists a few legacy product ids whose NEU item file uses different spelling.
+// Direct item files and bazaarstocks are both checked first, so these only cover the leftovers.
+const NEU_ALIASES: Record<string, string> = {
+    'INK_SACK:3': 'INK_SACK-3',
+    'INK_SACK:4': 'INK_SACK-4',
+    'LOG:1': 'LOG-1',
+    'LOG:2': 'LOG-2',
+    'LOG:3': 'LOG-3',
+    'LOG_2:1': 'LOG_2-1',
+    'RAW_FISH:1': 'RAW_FISH-1',
+    'RAW_FISH:2': 'RAW_FISH-2',
+    'RAW_FISH:3': 'RAW_FISH-3',
+    'SAND:1': 'SAND-1',
+    BAZAAR_COOKIE: 'BOOSTER_COOKIE',
+    ENCHANTED_CARROT_ON_A_STICK: 'ENCHANTED_CARROT_STICK',
 };
 
+// Escape hatch for names NEU gets wrong or has not caught up with yet. Deliberately empty:
+// NEU currently covers every Bazaar product, either directly or through the sibling-level
+// template below. Add an entry here only as a stopgap, and drop it once NEU is fixed.
+const NAME_OVERRIDES: Record<string, string> = {};
+
+const stripFormatting = (name: string): string =>
+    name.replace(COLOR_CODE_PATTERN, '').replace(PLACEHOLDER_PATTERN, '').trim();
+
 /**
- * Legacy fallback prettifier (kept from original).
- * Modified to remove "ULTIMATE_" prefix for enchantments not in NAME_OVERRIDES.
+ * Last-resort prettifier for product ids NEU knows nothing about.
+ * Only reached for oddities such as the level 0 placeholder enchantment products.
  */
 export const idToName = (id: string): string => {
-    // For enchantments, remove both ENCHANTMENT_ and ULTIMATE_ prefixes
-    // unless they have manual overrides (like Ultimate Wise and Ultimate Jerry)
     let cleanId = id.replace(/^ENCHANTMENT_/, '');
-    if (cleanId.startsWith('ULTIMATE_') && !NAME_OVERRIDES[id]) {
+    if (cleanId.startsWith('ULTIMATE_')) {
         cleanId = cleanId.replace(/^ULTIMATE_/, '');
     }
 
@@ -261,59 +111,13 @@ export const idToName = (id: string): string => {
     return [romanNumeral, ...strings].reverse().join(' ');
 };
 
-export const formatItemName = ({
-                                   name,
-                                   skyblockItemId,
-                               }: {
-    name: string | null;
-    skyblockItemId: string;
-}): string => {
-    if (NAME_OVERRIDES[skyblockItemId]) return NAME_OVERRIDES[skyblockItemId];
-
-    if (name) {
-        const cleaned = name
-            .replace(COLOR_CODE_PATTERN, '')
-            .replace(PLACEHOLDER_PATTERN, '')
-            .trim();
-
-        // Keep your STARRED_ handling (fragged items)
-        if (skyblockItemId.startsWith('STARRED_')) {
-            return `⚚ ${cleaned}`;
-        }
-        return cleaned;
-    }
-
-    const itemName = idToName(skyblockItemId);
-    // Handle shard items: convert "Shard [Name]" to "[Name] Shard"
-    if (skyblockItemId.startsWith('SHARD_')  && itemName.startsWith('Shard ')) {
-        const shardName = itemName.substring(6);
-        return `${shardName} Shard`;
-    }
-    // Handle turbo enchantments: convert "Turbo [Name]" to "Turbo-[Name]"
-    if (skyblockItemId.startsWith('ENCHANTMENT_TURBO')) {
-        const turboName = itemName.substring(6);
-        return `Turbo-${turboName}`;
-    }// Handle essence: convert "Essence [Name]" to "[Name] Essence"
-    if (skyblockItemId.startsWith('ESSENCE_') && itemName.startsWith('Essence ')) {
-        const essenceName = itemName.substring(8);
-        return `${essenceName} Essence`;
-    }
-    return itemName;
-};
-
-function assertSuccess<T extends { success: boolean }>(resp: any, guard: (r: any) => r is T, label: string): T {
-    if (!guard(resp)) {
+function assertBazaarSuccess(resp: any): BazaarApiResponse {
+    const ok = resp && resp.success === true && typeof resp.products === 'object' && resp.products !== null;
+    if (!ok) {
         const cause = (resp as ApiErrorResponse)?.cause ?? 'Unknown API error';
-        throw new Error(`${label} API returned an error: ${cause}`);
+        throw new Error(`Bazaar API returned an error: ${cause}`);
     }
     return resp;
-}
-
-function isItemsSuccess(r: any): r is SkyBlockItemsApiResponse {
-    return r && r.success === true && Array.isArray(r.items);
-}
-function isBazaarSuccess(r: any): r is BazaarApiResponse {
-    return r && r.success === true && typeof r.products === 'object' && r.products !== null;
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -322,58 +126,215 @@ async function fetchJson<T>(url: string): Promise<T> {
     return res.json() as Promise<T>;
 }
 
-async function generateBazaarConversions() {
-    console.log('Fetching Bazaar products and SkyBlock items...');
-    const [bazaarRaw, itemsRaw] = await Promise.all([
-        fetchJson<any>(BAZAAR_API_URL),
-        fetchJson<any>(ITEMS_API_URL),
-    ]);
+/** Clones NEU shallowly (or reuses the checkout named by NEU_REPO_PATH) and reads its stock map. */
+export function openNeuRepo(): NeuRepo {
+    const existing = process.env[NEU_REPO_PATH_ENV];
+    const root = existing
+        ? path.resolve(existing)
+        : fs.mkdtempSync(path.join(os.tmpdir(), 'neu-repo-'));
 
-    const bazaarData = assertSuccess(bazaarRaw, isBazaarSuccess, 'Bazaar');
-    const itemsData = assertSuccess(itemsRaw, isItemsSuccess, 'Items');
-
-    // Authoritative set of product IDs
-    const bazaarProductIds = Object.keys(bazaarData.products);
-    console.log(`Bazaar currently lists ${bazaarProductIds.length} product IDs.`);
-
-    // Build quick lookup of items by ID
-    const itemsById: Record<string, SkyBlockItem> = {};
-    for (const it of itemsData.items) {
-        itemsById[it.id] = it;
+    if (existing) {
+        console.log(`Using existing NEU checkout at ${root}`);
+    } else {
+        console.log(`Cloning ${NEU_REPO_URL}...`);
+        execFileSync('git', ['clone', '--depth', '1', NEU_REPO_URL, root], { stdio: 'inherit' });
     }
 
+    const commit = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+
+    const stocksPath = path.join(root, 'constants', 'bazaarstocks.json');
+    const stocksRaw = JSON.parse(fs.readFileSync(stocksPath, 'utf8')) as BazaarStock[];
+    const stocks = new Map<string, string>();
+    for (const stock of stocksRaw) {
+        if (stock.stock && stock.id) stocks.set(stock.stock, stock.id);
+    }
+
+    console.log(`NEU commit ${commit} (${stocks.size} bazaar stock mappings)`);
+    return { root, commit, stocks };
+}
+
+const neuNameCache = new Map<string, string | null>();
+
+/**
+ * Reads a NEU item's display name.
+ *
+ * Enchantment books are all stored as a generic "Enchanted Book" item, with the enchantment
+ * name in the first meaningful lore line, so those are read out of the lore instead.
+ */
+function readNeuName(neu: NeuRepo, neuId: string): string | null {
+    const cached = neuNameCache.get(neuId);
+    if (cached !== undefined) return cached;
+
+    const resolved = readNeuNameUncached(neu, neuId);
+    neuNameCache.set(neuId, resolved);
+    return resolved;
+}
+
+function readNeuNameUncached(neu: NeuRepo, neuId: string): string | null {
+    const itemPath = path.join(neu.root, 'items', `${neuId}.json`);
+    if (!fs.existsSync(itemPath)) return null;
+
+    let item: NeuItem;
+    try {
+        item = JSON.parse(fs.readFileSync(itemPath, 'utf8'));
+    } catch (e) {
+        console.warn(`Could not parse NEU item ${neuId}: ${(e as Error).message}`);
+        return null;
+    }
+
+    const displayName = stripFormatting(item.displayname ?? '');
+    if (displayName && displayName !== 'Enchanted Book') return displayName;
+
+    for (const line of item.lore ?? []) {
+        const stripped = stripFormatting(line);
+        if (!stripped || stripped === 'Combinable in Anvil') continue;
+        return stripped;
+    }
+
+    return displayName || null;
+}
+
+/**
+ * Names an enchantment level NEU does not stock by borrowing a level it does.
+ *
+ * The Bazaar sells levels NEU has no item file for (Efficiency VI-X, Hecatomb II-X, ...).
+ * Prettifying the id loses in-game spelling ("Counter Strike III" for "Counter-Strike III"),
+ * so take a sibling level's name and swap the numeral, keeping the sibling's numeral style
+ * because a few enchantments are displayed with arabic levels (e.g. "Scuba 2").
+ */
+function siblingLevelName(neu: NeuRepo, productId: string): string | null {
+    const parsedId = ENCHANTMENT_ID_PATTERN.exec(productId);
+    if (!parsedId?.groups) return null;
+
+    const { family } = parsedId.groups;
+    const level = Number.parseInt(parsedId.groups.level, 10);
+
+    const siblings = [...neu.stocks.entries()]
+        .flatMap(([stockId, neuId]) => {
+            const parsed = ENCHANTMENT_ID_PATTERN.exec(stockId);
+            if (!parsed?.groups || parsed.groups.family !== family || stockId === productId) return [];
+            return [{ level: Number.parseInt(parsed.groups.level, 10), neuId }];
+        })
+        .sort((a, b) => a.level - b.level);
+
+    for (const sibling of siblings) {
+        const siblingName = readNeuName(neu, sibling.neuId);
+        if (!siblingName) continue;
+
+        const parsedName = TRAILING_LEVEL_PATTERN.exec(siblingName);
+        if (!parsedName?.groups) continue;
+
+        const arabic = /^\d+$/.test(parsedName.groups.level);
+        return `${parsedName.groups.base} ${formatLevel(level, arabic)}`;
+    }
+
+    return null;
+}
+
+function formatLevel(level: number, arabic: boolean): string {
+    if (arabic || level <= 0 || level > MAX_ROMAN_LEVEL) return String(level);
+    return romans.romanize(level);
+}
+
+/**
+ * Resolves one Bazaar product id to the name it is displayed under in game.
+ * `previous` is the last generated file, kept as a floor so a NEU outage cannot
+ * churn known-good names into prettified guesses.
+ */
+export function resolveProductName(
+    neu: NeuRepo,
+    productId: string,
+    previous: Record<string, string>,
+): ResolvedName {
+    const override = NAME_OVERRIDES[productId];
+    if (override) return { name: override, source: 'override' };
+
+    const direct = readNeuName(neu, productId);
+    if (direct) return { name: direct, source: 'neu-item' };
+
+    const stockId = neu.stocks.get(productId);
+    if (stockId) {
+        const stockName = readNeuName(neu, stockId);
+        if (stockName) return { name: stockName, source: 'neu-stock' };
+    }
+
+    const aliasId = NEU_ALIASES[productId];
+    if (aliasId) {
+        const aliasName = readNeuName(neu, aliasId);
+        if (aliasName) return { name: aliasName, source: 'neu-alias' };
+    }
+
+    const sibling = siblingLevelName(neu, productId);
+    if (sibling) return { name: sibling, source: 'sibling' };
+
+    const known = previous[productId];
+    if (known) return { name: known, source: 'previous' };
+
+    return { name: idToName(productId), source: 'prettified' };
+}
+
+export function buildConversions(
+    neu: NeuRepo,
+    productIds: string[],
+    previous: Record<string, string>,
+): { conversions: Record<string, string>; sources: Record<NameSource, string[]> } {
     const conversions: Record<string, string> = {};
-    const missing: string[] = [];
+    const sources = {
+        override: [], 'neu-item': [], 'neu-stock': [], 'neu-alias': [],
+        sibling: [], previous: [], prettified: [],
+    } as Record<NameSource, string[]>;
 
-    for (const productId of bazaarProductIds) {
-        const item = itemsById[productId];
-        if (item) {
-            conversions[productId] = formatItemName({ name: item.name, skyblockItemId: productId });
-        } else {
-            // Not found in items API; fallback
-            conversions[productId] = formatItemName({ name: null, skyblockItemId: productId });
-            missing.push(productId);
-        }
+    for (const productId of [...productIds].sort((a, b) => a.localeCompare(b))) {
+        const resolved = resolveProductName(neu, productId, previous);
+        conversions[productId] = resolved.name;
+        sources[resolved.source].push(productId);
     }
 
-    // Sort keys for deterministic output
-    const sorted: Record<string, string> = {};
-    Object.keys(conversions)
-        .sort((a, b) => a.localeCompare(b))
-        .forEach((k) => (sorted[k] = conversions[k]));
+    return { conversions, sources };
+}
 
-    fs.writeFileSync(OUTPUT_PATH, JSON.stringify(sorted, null, 2));
-    console.log(`Wrote ${Object.keys(sorted).length} bazaar conversions to ${OUTPUT_PATH}`);
-
-    if (missing.length) {
-        console.log(
-            `NOTE: ${missing.length} product IDs not present in items API. Used fallback prettifier.\n` +
-            missing.join(', ')
-        );
+function readPreviousConversions(): Record<string, string> {
+    if (!fs.existsSync(OUTPUT_PATH)) return {};
+    try {
+        return JSON.parse(fs.readFileSync(OUTPUT_PATH, 'utf8')) as Record<string, string>;
+    } catch (e) {
+        console.warn(`Could not read previous ${OUTPUT_FILE_NAME}: ${(e as Error).message}`);
+        return {};
     }
 }
 
-generateBazaarConversions().catch((e) => {
-    console.error('Failed to generate bazaar conversions:', e);
-    process.exit(1);
-});
+async function generateBazaarConversions() {
+    console.log('Fetching Bazaar products...');
+    const bazaarData = assertBazaarSuccess(await fetchJson<any>(BAZAAR_API_URL));
+
+    // The Bazaar itself remains authoritative for which product ids exist.
+    const bazaarProductIds = Object.keys(bazaarData.products);
+    console.log(`Bazaar currently lists ${bazaarProductIds.length} product IDs.`);
+
+    const neu = openNeuRepo();
+    const previous = readPreviousConversions();
+    const { conversions, sources } = buildConversions(neu, bazaarProductIds, previous);
+
+    fs.writeFileSync(OUTPUT_PATH, JSON.stringify(conversions, null, 2));
+    console.log(`Wrote ${Object.keys(conversions).length} bazaar conversions to ${OUTPUT_PATH}`);
+
+    const counts = Object.entries(sources)
+        .map(([source, ids]) => `${source}=${ids.length}`)
+        .join(', ');
+    console.log(`Name sources (NEU commit ${neu.commit}): ${counts}`);
+
+    // Anything NEU could not name is worth a human look: either the Bazaar added a product
+    // NEU has not picked up yet, or the id shape is one the sibling template cannot handle.
+    for (const [source, ids] of [['previous', sources.previous], ['prettified', sources.prettified]] as const) {
+        if (ids.length) {
+            console.log(`NOTE: ${ids.length} product IDs had no NEU name (${source}): ${ids.join(', ')}`);
+        }
+    }
+}
+
+if (require.main === module) {
+    generateBazaarConversions().catch((e) => {
+        console.error('Failed to generate bazaar conversions:', e);
+        process.exit(1);
+    });
+}
