@@ -7,39 +7,28 @@ import romans from 'romans';
 
 const BAZAAR_API_URL = 'https://api.hypixel.net/v2/skyblock/bazaar';
 
-// Display names come from the NEU item repo rather than the SkyBlock items API.
-// NEU's names are scraped from the items as they actually render in game, which is what
-// consumers match against; the items API `name` field is often absent (every shard, most
-// enchantment books) or stale (enchantments renamed in place, e.g. Arcane -> Woodsplitter).
+// Display names come from the NEU item repo rather than the SkyBlock items API. NEU's names
+// are scraped from the items as they render in game, which is what consumers match against;
+// the items API `name` field is often absent (every shard, most enchantment books) or stale
+// (enchantments renamed in place, e.g. Arcane -> Woodsplitter).
+// Set NEU_REPO_PATH to an existing checkout to skip the clone.
 const NEU_REPO_URL = 'https://github.com/NotEnoughUpdates/NotEnoughUpdates-REPO';
-
-// Set to an existing NEU checkout to skip the clone (useful for local runs and CI caching).
-const NEU_REPO_PATH_ENV = 'NEU_REPO_PATH';
 
 const OUTPUT_FILE_NAME = 'bazaar-conversions.json';
 const OUTPUT_PATH = path.join(process.cwd(), OUTPUT_FILE_NAME);
 
-interface BazaarApiResponse {
-    success: true;
-    lastUpdated: number;
-    products: Record<string, unknown>;
-}
-interface ApiErrorResponse {
-    success: false;
-    cause?: string;
-}
+const COLOR_CODE_PATTERN = /§[0-9A-FK-ORa-fk-or]/g;
+/** ENCHANTMENT_<family>_<level>, e.g. ENCHANTMENT_COUNTER_STRIKE_3 */
+const ENCHANTMENT_ID_PATTERN = /^ENCHANTMENT_(?<family>.+)_(?<level>\d+)$/;
+/** A name ending in a level, e.g. "Counter-Strike V" or "Scuba 2" */
+const TRAILING_LEVEL_PATTERN = /^(?<base>.*\S)\s+(?<level>[IVXLCDM]+|\d+)$/;
+/** romans.romanize rejects anything above this */
+const MAX_ROMAN_LEVEL = 3999;
 
-interface NeuItem {
-    displayname?: string;
-    lore?: string[];
-    [k: string]: any;
-}
-
-/** One entry of NEU's constants/bazaarstocks.json: Bazaar product id -> NEU item id. */
-interface BazaarStock {
-    stock?: string;
-    id?: string;
-}
+const NAME_SOURCES = [
+    'override', 'neu-item', 'neu-stock', 'neu-alias', 'sibling', 'previous', 'prettified',
+] as const;
+type NameSource = (typeof NAME_SOURCES)[number];
 
 interface NeuRepo {
     root: string;
@@ -48,24 +37,11 @@ interface NeuRepo {
     stocks: Map<string, string>;
 }
 
-/** How a product's display name was determined, for reporting. */
-type NameSource = 'override' | 'neu-item' | 'neu-stock' | 'neu-alias' | 'sibling' | 'previous' | 'prettified';
-
-interface ResolvedName {
+interface ResolvedProduct {
+    productId: string;
     name: string;
     source: NameSource;
 }
-
-const ENDS_WITH_NUMBER = /\d$/;
-const COLOR_CODE_PATTERN = /§[0-9A-FK-ORa-fk-or]/g;
-const PLACEHOLDER_PATTERN = /%%\w+%%/g;
-
-/** ENCHANTMENT_<family>_<level>, e.g. ENCHANTMENT_COUNTER_STRIKE_3 */
-const ENCHANTMENT_ID_PATTERN = /^ENCHANTMENT_(?<family>.+)_(?<level>\d+)$/;
-/** A display name ending in a level, e.g. "Counter-Strike V" or "Scuba 2" */
-const TRAILING_LEVEL_PATTERN = /^(?<base>.*\S)\s+(?<level>[IVXLCDM]+|\d+)$/;
-
-const MAX_ROMAN_LEVEL = 3999;
 
 // The Bazaar still lists a few legacy product ids whose NEU item file uses different spelling.
 // Direct item files and bazaarstocks are both checked first, so these only cover the leftovers.
@@ -89,49 +65,44 @@ const NEU_ALIASES: Record<string, string> = {
 // template below. Add an entry here only as a stopgap, and drop it once NEU is fixed.
 const NAME_OVERRIDES: Record<string, string> = {};
 
-const stripFormatting = (name: string): string =>
-    name.replace(COLOR_CODE_PATTERN, '').replace(PLACEHOLDER_PATTERN, '').trim();
+const stripFormatting = (name: string): string => name.replace(COLOR_CODE_PATTERN, '').trim();
 
-/**
- * Last-resort prettifier for product ids NEU knows nothing about.
- * Only reached for oddities such as the level 0 placeholder enchantment products.
- */
-export const idToName = (id: string): string => {
-    let cleanId = id.replace(/^ENCHANTMENT_/, '');
-    if (cleanId.startsWith('ULTIMATE_')) {
-        cleanId = cleanId.replace(/^ULTIMATE_/, '');
-    }
+/** Splits "Counter-Strike V" or "Scuba 2" into its base name and the numeral it ends with. */
+function splitTrailingLevel(name: string) {
+    const parsed = TRAILING_LEVEL_PATTERN.exec(name);
+    if (!parsed?.groups) return null;
 
-    const nameWithoutRoman = startCase(toLower(cleanId));
-    if (!ENDS_WITH_NUMBER.test(nameWithoutRoman)) return nameWithoutRoman;
-
-    const [n, ...strings] = nameWithoutRoman.split(' ').reverse() as [string, ...string[]];
-    const decimal = Number.parseInt(n, 10);
-    const romanNumeral = decimal <= 0 ? decimal : romans.romanize(decimal);
-    return [romanNumeral, ...strings].reverse().join(' ');
-};
-
-function assertBazaarSuccess(resp: any): BazaarApiResponse {
-    const ok = resp && resp.success === true && typeof resp.products === 'object' && resp.products !== null;
-    if (!ok) {
-        const cause = (resp as ApiErrorResponse)?.cause ?? 'Unknown API error';
-        throw new Error(`Bazaar API returned an error: ${cause}`);
-    }
-    return resp;
+    const { base, level } = parsed.groups;
+    return { base, level, arabic: /^\d+$/.test(level) };
 }
 
-async function fetchJson<T>(url: string): Promise<T> {
-    const res = await fetch(url, { headers: { 'User-Agent': 'bazaar-utils-generator' } });
-    if (!res.ok) throw new Error(`Request failed ${res.status} ${res.statusText} for ${url}`);
-    return res.json() as Promise<T>;
+function formatLevel(level: number, arabic: boolean): string {
+    return arabic || level <= 0 || level > MAX_ROMAN_LEVEL ? String(level) : romans.romanize(level);
 }
 
-/** Clones NEU shallowly (or reuses the checkout named by NEU_REPO_PATH) and reads its stock map. */
+/** Last-resort prettifier for products NEU knows nothing about. */
+function idToName(id: string): string {
+    const name = startCase(toLower(id.replace(/^ENCHANTMENT_/, '').replace(/^ULTIMATE_/, '')));
+    const trailing = splitTrailingLevel(name);
+    // startCase always leaves the level arabic, so a roman tail here is part of the name.
+    return trailing?.arabic ? `${trailing.base} ${formatLevel(Number(trailing.level), false)}` : name;
+}
+
+async function fetchBazaarProductIds(): Promise<string[]> {
+    const res = await fetch(BAZAAR_API_URL, { headers: { 'User-Agent': 'bazaar-utils-generator' } });
+    if (!res.ok) throw new Error(`Request failed ${res.status} ${res.statusText} for ${BAZAAR_API_URL}`);
+
+    const body = (await res.json()) as { success?: boolean; cause?: string; products?: Record<string, unknown> };
+    if (!body?.success || !body.products) {
+        throw new Error(`Bazaar API returned an error: ${body?.cause ?? 'Unknown API error'}`);
+    }
+    return Object.keys(body.products);
+}
+
+/** Clones NEU shallowly (or reuses NEU_REPO_PATH) and reads its Bazaar stock map. */
 export function openNeuRepo(): NeuRepo {
-    const existing = process.env[NEU_REPO_PATH_ENV];
-    const root = existing
-        ? path.resolve(existing)
-        : fs.mkdtempSync(path.join(os.tmpdir(), 'neu-repo-'));
+    const existing = process.env.NEU_REPO_PATH;
+    const root = existing ? path.resolve(existing) : fs.mkdtempSync(path.join(os.tmpdir(), 'neu-repo-'));
 
     if (existing) {
         console.log(`Using existing NEU checkout at ${root}`);
@@ -140,41 +111,26 @@ export function openNeuRepo(): NeuRepo {
         execFileSync('git', ['clone', '--depth', '1', NEU_REPO_URL, root], { stdio: 'inherit' });
     }
 
-    const commit = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-
     const stocksPath = path.join(root, 'constants', 'bazaarstocks.json');
-    const stocksRaw = JSON.parse(fs.readFileSync(stocksPath, 'utf8')) as BazaarStock[];
-    const stocks = new Map<string, string>();
-    for (const stock of stocksRaw) {
-        if (stock.stock && stock.id) stocks.set(stock.stock, stock.id);
-    }
+    const stocksRaw = JSON.parse(fs.readFileSync(stocksPath, 'utf8')) as { stock?: string; id?: string }[];
+    const stocks = new Map(
+        stocksRaw.flatMap((stock) => (stock.stock && stock.id ? [[stock.stock, stock.id] as const] : [])),
+    );
 
+    const commit = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
     console.log(`NEU commit ${commit} (${stocks.size} bazaar stock mappings)`);
     return { root, commit, stocks };
 }
 
-const neuNameCache = new Map<string, string | null>();
-
 /**
- * Reads a NEU item's display name.
- *
- * Enchantment books are all stored as a generic "Enchanted Book" item, with the enchantment
- * name in the first meaningful lore line, so those are read out of the lore instead.
+ * Reads a NEU item's display name. Enchantment books are all stored as a generic
+ * "Enchanted Book" item with the enchantment in the first meaningful lore line.
  */
 function readNeuName(neu: NeuRepo, neuId: string): string | null {
-    const cached = neuNameCache.get(neuId);
-    if (cached !== undefined) return cached;
-
-    const resolved = readNeuNameUncached(neu, neuId);
-    neuNameCache.set(neuId, resolved);
-    return resolved;
-}
-
-function readNeuNameUncached(neu: NeuRepo, neuId: string): string | null {
     const itemPath = path.join(neu.root, 'items', `${neuId}.json`);
     if (!fs.existsSync(itemPath)) return null;
 
-    let item: NeuItem;
+    let item: { displayname?: string; lore?: string[] };
     try {
         item = JSON.parse(fs.readFileSync(itemPath, 'utf8'));
     } catch (e) {
@@ -185,67 +141,53 @@ function readNeuNameUncached(neu: NeuRepo, neuId: string): string | null {
     const displayName = stripFormatting(item.displayname ?? '');
     if (displayName && displayName !== 'Enchanted Book') return displayName;
 
-    for (const line of item.lore ?? []) {
-        const stripped = stripFormatting(line);
-        if (!stripped || stripped === 'Combinable in Anvil') continue;
-        return stripped;
-    }
-
-    return displayName || null;
+    const loreName = (item.lore ?? [])
+        .map(stripFormatting)
+        .find((line) => line && line !== 'Combinable in Anvil');
+    return loreName ?? null;
 }
 
 /**
- * Names an enchantment level NEU does not stock by borrowing a level it does.
+ * Names an enchantment level NEU does not stock by borrowing one it does.
  *
- * The Bazaar sells levels NEU has no item file for (Efficiency VI-X, Hecatomb II-X, ...).
- * Prettifying the id loses in-game spelling ("Counter Strike III" for "Counter-Strike III"),
- * so take a sibling level's name and swap the numeral, keeping the sibling's numeral style
- * because a few enchantments are displayed with arabic levels (e.g. "Scuba 2").
+ * The Bazaar sells levels with no NEU item file (Efficiency VI-X, Hecatomb II-X, ...), and
+ * prettifying the id loses in-game spelling ("Counter Strike III"). Take a sibling level's
+ * name and swap the numeral, keeping the sibling's numeral style because a few enchantments
+ * are displayed with arabic levels (e.g. "Scuba 2").
  */
 function siblingLevelName(neu: NeuRepo, productId: string): string | null {
-    const parsedId = ENCHANTMENT_ID_PATTERN.exec(productId);
-    if (!parsedId?.groups) return null;
+    const parsed = ENCHANTMENT_ID_PATTERN.exec(productId);
+    if (!parsed?.groups) return null;
 
-    const { family } = parsedId.groups;
-    const level = Number.parseInt(parsedId.groups.level, 10);
-
-    const siblings = [...neu.stocks.entries()]
+    const { family, level } = parsed.groups;
+    const siblings = [...neu.stocks]
         .flatMap(([stockId, neuId]) => {
-            const parsed = ENCHANTMENT_ID_PATTERN.exec(stockId);
-            if (!parsed?.groups || parsed.groups.family !== family || stockId === productId) return [];
-            return [{ level: Number.parseInt(parsed.groups.level, 10), neuId }];
+            const sibling = ENCHANTMENT_ID_PATTERN.exec(stockId);
+            return sibling?.groups && sibling.groups.family === family && stockId !== productId
+                ? [{ level: Number(sibling.groups.level), neuId }]
+                : [];
         })
         .sort((a, b) => a.level - b.level);
 
     for (const sibling of siblings) {
         const siblingName = readNeuName(neu, sibling.neuId);
-        if (!siblingName) continue;
-
-        const parsedName = TRAILING_LEVEL_PATTERN.exec(siblingName);
-        if (!parsedName?.groups) continue;
-
-        const arabic = /^\d+$/.test(parsedName.groups.level);
-        return `${parsedName.groups.base} ${formatLevel(level, arabic)}`;
+        const trailing = siblingName ? splitTrailingLevel(siblingName) : null;
+        if (trailing) return `${trailing.base} ${formatLevel(Number(level), trailing.arabic)}`;
     }
 
     return null;
 }
 
-function formatLevel(level: number, arabic: boolean): string {
-    if (arabic || level <= 0 || level > MAX_ROMAN_LEVEL) return String(level);
-    return romans.romanize(level);
-}
-
 /**
- * Resolves one Bazaar product id to the name it is displayed under in game.
- * `previous` is the last generated file, kept as a floor so a NEU outage cannot
- * churn known-good names into prettified guesses.
+ * Resolves one Bazaar product id to the name it is displayed under in game. `previous` is the
+ * last generated file, kept as a floor so a NEU outage cannot churn known-good names into
+ * prettified guesses.
  */
-export function resolveProductName(
+function resolveProductName(
     neu: NeuRepo,
     productId: string,
     previous: Record<string, string>,
-): ResolvedName {
+): Omit<ResolvedProduct, 'productId'> {
     const override = NAME_OVERRIDES[productId];
     if (override) return { name: override, source: 'override' };
 
@@ -253,16 +195,12 @@ export function resolveProductName(
     if (direct) return { name: direct, source: 'neu-item' };
 
     const stockId = neu.stocks.get(productId);
-    if (stockId) {
-        const stockName = readNeuName(neu, stockId);
-        if (stockName) return { name: stockName, source: 'neu-stock' };
-    }
+    const stockName = stockId ? readNeuName(neu, stockId) : null;
+    if (stockName) return { name: stockName, source: 'neu-stock' };
 
     const aliasId = NEU_ALIASES[productId];
-    if (aliasId) {
-        const aliasName = readNeuName(neu, aliasId);
-        if (aliasName) return { name: aliasName, source: 'neu-alias' };
-    }
+    const aliasName = aliasId ? readNeuName(neu, aliasId) : null;
+    if (aliasName) return { name: aliasName, source: 'neu-alias' };
 
     const sibling = siblingLevelName(neu, productId);
     if (sibling) return { name: sibling, source: 'sibling' };
@@ -273,24 +211,15 @@ export function resolveProductName(
     return { name: idToName(productId), source: 'prettified' };
 }
 
-export function buildConversions(
+/** Resolves every product, sorted by id so the generated file has a stable order. */
+export function resolveProducts(
     neu: NeuRepo,
     productIds: string[],
     previous: Record<string, string>,
-): { conversions: Record<string, string>; sources: Record<NameSource, string[]> } {
-    const conversions: Record<string, string> = {};
-    const sources = {
-        override: [], 'neu-item': [], 'neu-stock': [], 'neu-alias': [],
-        sibling: [], previous: [], prettified: [],
-    } as Record<NameSource, string[]>;
-
-    for (const productId of [...productIds].sort((a, b) => a.localeCompare(b))) {
-        const resolved = resolveProductName(neu, productId, previous);
-        conversions[productId] = resolved.name;
-        sources[resolved.source].push(productId);
-    }
-
-    return { conversions, sources };
+): ResolvedProduct[] {
+    return [...productIds]
+        .sort((a, b) => a.localeCompare(b))
+        .map((productId) => ({ productId, ...resolveProductName(neu, productId, previous) }));
 }
 
 function readPreviousConversions(): Record<string, string> {
@@ -305,30 +234,26 @@ function readPreviousConversions(): Record<string, string> {
 
 async function generateBazaarConversions() {
     console.log('Fetching Bazaar products...');
-    const bazaarData = assertBazaarSuccess(await fetchJson<any>(BAZAAR_API_URL));
-
-    // The Bazaar itself remains authoritative for which product ids exist.
-    const bazaarProductIds = Object.keys(bazaarData.products);
-    console.log(`Bazaar currently lists ${bazaarProductIds.length} product IDs.`);
+    // The Bazaar itself remains authoritative for which product ids exist; NEU only names them.
+    const productIds = await fetchBazaarProductIds();
+    console.log(`Bazaar currently lists ${productIds.length} product IDs.`);
 
     const neu = openNeuRepo();
-    const previous = readPreviousConversions();
-    const { conversions, sources } = buildConversions(neu, bazaarProductIds, previous);
+    const resolved = resolveProducts(neu, productIds, readPreviousConversions());
+    const conversions = Object.fromEntries(resolved.map(({ productId, name }) => [productId, name]));
 
     fs.writeFileSync(OUTPUT_PATH, JSON.stringify(conversions, null, 2));
-    console.log(`Wrote ${Object.keys(conversions).length} bazaar conversions to ${OUTPUT_PATH}`);
+    console.log(`Wrote ${resolved.length} bazaar conversions to ${OUTPUT_PATH}`);
 
-    const counts = Object.entries(sources)
-        .map(([source, ids]) => `${source}=${ids.length}`)
-        .join(', ');
-    console.log(`Name sources (NEU commit ${neu.commit}): ${counts}`);
+    const counts = NAME_SOURCES.map((s) => `${s}=${resolved.filter((r) => r.source === s).length}`);
+    console.log(`Name sources (NEU commit ${neu.commit}): ${counts.join(', ')}`);
 
-    // Anything NEU could not name is worth a human look: either the Bazaar added a product
-    // NEU has not picked up yet, or the id shape is one the sibling template cannot handle.
-    for (const [source, ids] of [['previous', sources.previous], ['prettified', sources.prettified]] as const) {
-        if (ids.length) {
-            console.log(`NOTE: ${ids.length} product IDs had no NEU name (${source}): ${ids.join(', ')}`);
-        }
+    // Anything NEU could not name is worth a human look: either the Bazaar added a product NEU
+    // has not picked up yet, or the id shape is one the sibling template cannot handle.
+    const unnamed = resolved.filter((r) => r.source === 'previous' || r.source === 'prettified');
+    if (unnamed.length) {
+        const listed = unnamed.map((r) => `${r.productId} (${r.source})`).join(', ');
+        console.log(`NOTE: ${unnamed.length} product IDs had no NEU name: ${listed}`);
     }
 }
 
